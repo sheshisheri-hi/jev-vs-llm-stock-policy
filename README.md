@@ -1,5 +1,9 @@
 # jev-vs-llm-stock-policy
 
+Traditional **LLM** (free-form chat / Cursor Cloud Agent prose) vs **TypeSafe Jev**, the first **System One** model (typed Choice / Score / Noul). Same fake order-policy tickets. Hard rules live in Python. The final gate uses those rules plus Jev.
+
+Curated Jev / System One use cases: [yibie/awesome-jev](https://github.com/yibie/awesome-jev)
+
 ## What this showcases
 
 Can my code act on the model's answer?
@@ -16,9 +20,9 @@ This is not stock picking. Not a trade in Apple, NVIDIA, or any real name. Not a
 
 ## When I'd use Jev vs an LLM
 
-I'd use Jev when the next step is code. I need a closed set of actions, and I need the probabilities. Policy, routing, triage, tool gates. An invented label would break the product.
+I'd use Jev, the System One model, when the next step is code. I need a closed set of actions, and I need the probabilities. Policy, routing, triage, tool gates. An invented label would break the product.
 
-I'd use an LLM when a person is the reader. Explanation, drafting, open-ended reasoning, a narrative review, generation, chat. The text can wander. That's fine there.
+I'd use a traditional LLM when a person is the reader. Explanation, drafting, open-ended reasoning, a narrative review, generation, chat. The text can wander. That's fine there.
 
 I use them together like this. Hard rules own the math and the blocklist. Jev owns the typed gray-zone the gate is willing to trust. The LLM is the contrast, and it's what I'd call if I wanted a paragraph for a human. In this demo the final action is the rules plus Jev. The LLM column is not an input to that decision.
 

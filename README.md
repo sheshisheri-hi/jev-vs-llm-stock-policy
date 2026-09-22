@@ -14,6 +14,14 @@ Six fake tickets. No market data.
 
 This is not stock picking. Not a trade in Apple, NVIDIA, or any real name. Not a broker. Not a return forecast. Not financial advice.
 
+## When I'd use Jev vs an LLM
+
+I'd use Jev when the next step is code. I need a closed set of actions, and I need the probabilities. Policy, routing, triage, tool gates. An invented label would break the product.
+
+I'd use an LLM when a person is the reader. Explanation, drafting, open-ended reasoning, a narrative review, generation, chat. The text can wander. That's fine there.
+
+I use them together like this. Hard rules own the math and the blocklist. Jev owns the typed gray-zone the gate is willing to trust. The LLM is the contrast, and it's what I'd call if I wanted a paragraph for a human. In this demo the final action is the rules plus Jev. The LLM column is not an input to that decision.
+
 ## How to read the table
 
 `python examples/demo.py` prints four columns.
@@ -28,6 +36,27 @@ This is not stock picking. Not a trade in Apple, NVIDIA, or any real name. Not a
 The row to look at is `concentration-breach`. The stub says `approve_with_vibes`. The SAMPLE Choice says `allow`, because I wrote it that way. The gate says `escalate_to_human`: the buy would put one name at 32% of the book, and the cap is 15%.
 
 "Jev can't hallucinate" here means in-schema only. The Choice has to be one of the three labels I sent. That is not the same as the label being right. It can still put 0.88 on the wrong one. The gate and the hard rules are how I handle that.
+
+## Live run outcome
+
+On the evening of 2026-09-21 ET I ran `python examples/demo.py --live-llm`. Jev was live because the key was set. The response model was `jev-1.13.0`. The LLM column was one Cursor Cloud Agent, no repo. These are the parsed labels. I'm not pasting the prose.
+
+| Ticket | Cursor LLM | Jev | Final gate |
+| --- | --- | --- | --- |
+| core-top-up | allow | allow | allow |
+| routine-hold | allow | allow | allow |
+| concentration-breach | deny | deny | escalate_to_human (hard 15% rule) |
+| after-hours-options | escalate_to_human | escalate_to_human | escalate_to_human |
+| sell-all-offshore | deny | deny | deny |
+| gray-zone-tip | deny | escalate_to_human | escalate_to_human |
+
+The live Cursor answers stayed inside `allow`, `escalate_to_human`, and `deny`. The stub does not. That's a contract versus free text. It is not proof the paragraph was the right policy call.
+
+The gate still mattered on concentration-breach. Both models said deny. A name at 32% of the book is a hard escalate, not a deny, so the final action was `escalate_to_human`. Jev's Choice on that row was deny at confidence 0.26, and `outside_policy` was 0.93, so the typed path was not an allow either.
+
+Gray-zone is where they split. Cursor ended deny. Jev's Choice was `escalate_to_human` and risk came back Critical. No hard rule fired. The size was inside the limits. The gate followed Jev.
+
+The section below titled as the no-key demo is a different run. Stub LLM, SAMPLE Jev. Don't read those rows as this table.
 
 ## Repo layout
 
@@ -52,7 +81,7 @@ Under the LLM cell you'll see `clamp -> escalate_to_human` when the prose doesn'
 ```mermaid
 flowchart TD
   A[Order ticket] --> B[Hard rules in code]
-  B --> C[LLM chat completion]
+  B --> C[Cursor Cloud Agent or chat LLM]
   B --> D[Jev System One]
   C --> C1[Free-form text]
   C1 --> C2[Best-effort parse]
@@ -146,7 +175,9 @@ python examples/demo.py --live-llm          # GROK_BOT_API_KEY, CURSOR_API_KEY, 
 
 `pytest` mocks the System One call and the Cursor and OpenAI calls. No key, no network.
 
-## The six tickets
+## The six tickets (no-key demo)
+
+These blurbs are the offline run: stub LLM, SAMPLE Jev. The live labels are in the table above.
 
 1. **core-top-up.** Buy $5,000 of CORE. Concentration stays near 8%. Rules pass. Choice `allow` at 0.92. Gate allows. The stub happens to say allow too.
 2. **routine-hold.** A no-op note, $0. There's no `hold` label in the schema. A do-nothing ticket that passes the rules is `allow`. The stub says `maybe_later`, which I reject.
@@ -155,9 +186,9 @@ python examples/demo.py --live-llm          # GROK_BOT_API_KEY, CURSOR_API_KEY, 
 5. **sell-all-offshore.** Sell the book and wire a new offshore account. No second approver. Blocklist and notional both deny. The stub's JSON decision is `wire_it`.
 6. **gray-zone-tip.** Size is inside every numeric limit. The note cites a tip and says to call it a rebalance if anyone asks. No hard rule fires. `outside_policy` at 0.63 escalates. This is the one the arithmetic can't see.
 
-## Sample output
+## Sample output (no-key offline demo)
 
-Two rows from `python examples/demo.py` with no keys. The header is the real one. I left out the other four tickets; they use the same columns. SAMPLE is authored. It is not a live trace.
+Two rows from `python examples/demo.py` with no keys. The header is the real one. I left out the other four tickets; they use the same columns. The LLM is the stub. Jev is SAMPLE, which I authored so the table has numbers with no key. This is not the 2026-09-21 live run.
 
 ```text
 ┌────────────────────────────────┬────────────────────────────────────┬──────────────────────────────────────────┬────────────────────────────────┐

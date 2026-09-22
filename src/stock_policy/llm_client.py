@@ -43,8 +43,8 @@ CURSOR_API_ROOT = "https://api.cursor.com/v1"
 CURSOR_AGENT_NAME = "jev-demo-llm"
 CURSOR_SOURCE = "live-cursor"
 CURSOR_MODEL = "cursor-cloud-agent"
-CURSOR_RUN_TIMEOUT_SECONDS = 180.0
-CURSOR_HTTP_TIMEOUT_SECONDS = 30.0
+CURSOR_RUN_TIMEOUT_SECONDS = 300.0
+CURSOR_HTTP_TIMEOUT_SECONDS = 120.0
 _MISSING_LLM_KEY = (
     "Live LLM was requested, but no key is set. "
     "Set GROK_BOT_API_KEY or CURSOR_API_KEY for a Cursor Cloud Agent, "
@@ -253,6 +253,29 @@ def _read_response(response: object) -> dict[str, object]:
     return payload
 
 
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, TimeoutError):
+        return True
+    text = str(reason if reason is not None else exc).lower()
+    return "timed out" in text or "timeout" in text
+
+
+def _raise_transport_error(exc: BaseException, *, url: str, timeout: float) -> None:
+    if _is_timeout_error(exc) and "api.cursor.com" in url:
+        detail = getattr(exc, "reason", None)
+        detail_text = str(detail if detail is not None else exc)
+        raise RuntimeError(
+            "Cursor agent HTTP timed out. Create and poll can each take about a minute "
+            f"(this request waited {timeout:.0f}s). {detail_text}"
+        ) from exc
+    if isinstance(exc, urllib.error.URLError):
+        raise RuntimeError(f"LLM connection failed: {exc.reason}") from exc
+    raise exc
+
+
 def _http_json(
     method: str,
     url: str,
@@ -273,7 +296,9 @@ def _http_json(
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         raise RuntimeError(f"LLM HTTP {exc.code} {method} {url}: {detail}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"LLM connection failed: {exc.reason}") from exc
+        _raise_transport_error(exc, url=url, timeout=timeout)
+    except TimeoutError as exc:
+        _raise_transport_error(exc, url=url, timeout=timeout)
 
 
 def _call_openai(fixture: Fixture, *, api_key: str, timeout: float = 30.0) -> LlmResult:

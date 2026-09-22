@@ -28,6 +28,8 @@ from stock_policy.jev_client import (
     resolve_api_key,
 )
 from stock_policy.llm_client import (
+    CURSOR_HTTP_TIMEOUT_SECONDS,
+    CURSOR_RUN_TIMEOUT_SECONDS,
     decide as decide_llm,
     decide_many,
     live_llm_ready,
@@ -544,6 +546,22 @@ def test_cursor_error_still_archives(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(RuntimeError, match="ERROR: quota"):
         decide_llm(get_fixture("core-top-up"), live=True, api_key="crsr_test")
     assert archived["n"] == 1
+
+
+def test_cursor_http_timeout_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert CURSOR_HTTP_TIMEOUT_SECONDS >= 120.0
+    assert CURSOR_RUN_TIMEOUT_SECONDS >= 300.0
+    seen: dict[str, float] = {}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        seen["timeout"] = timeout
+        raise TimeoutError("The read operation timed out")
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    with pytest.raises(RuntimeError, match="about a minute") as caught:
+        decide_llm(get_fixture("core-top-up"), live=True, api_key="crsr_test")
+    assert seen["timeout"] == CURSOR_HTTP_TIMEOUT_SECONDS
+    assert "The read operation timed out" in str(caught.value)
 
 
 def test_cursor_poll_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

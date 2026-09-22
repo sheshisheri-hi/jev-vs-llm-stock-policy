@@ -1,0 +1,4 @@
+# Direct dependencies, pinned. typesafe-sdk pulls httpx2 for the System One client.
+typesafe-sdk==0.7.1
+pytest==8.4.2
+python-dotenv==1.2.3

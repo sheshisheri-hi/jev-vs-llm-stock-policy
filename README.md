@@ -56,7 +56,9 @@ The gate still mattered on concentration-breach. Both models said deny. A name a
 
 Gray-zone is where they split. Cursor ended deny. Jev's Choice was `escalate_to_human` and risk came back Critical. No hard rule fired. The size was inside the limits. The gate followed Jev.
 
-The section below titled as the no-key demo is a different run. Stub LLM, SAMPLE Jev. Don't read those rows as this table.
+The no-key sections further down are a different run. Stub LLM, SAMPLE Jev. Those rows are not this table.
+
+A one-screen version of this run is `docs/one-pager.html`. A short post draft is `docs/LINKEDIN.md`. Once this file is on `main`, jsDelivr serves the page at `https://cdn.jsdelivr.net/gh/sheshisheri-hi/jev-vs-llm-stock-policy@main/docs/one-pager.html`.
 
 ## Repo layout
 
@@ -70,6 +72,8 @@ src/stock_policy/
   compare.py      runs both paths and prints the four columns
 examples/demo.py
 tests/test_core.py
+docs/one-pager.html    one-screen version of the live run
+docs/LINKEDIN.md       short post draft
 requirements.txt
 .env.example
 ```

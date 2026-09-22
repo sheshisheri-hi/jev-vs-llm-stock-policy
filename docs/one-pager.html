@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jev vs LLM — order-policy gates</title>
+  <meta name="description" content="Same fake order ticket: free-text LLM vs TypeSafe Jev typed decisions. Hard rules still win. Not financial advice.">
+  <style>
+    :root {
+      --bg: #07090d;
+      --card: #10151c;
+      --line: #2a3544;
+      --text: #e8eef6;
+      --muted: #93a0b4;
+      --link: #9ec1ff;
+      --jev: #7ee0c6;
+      --llm: #f0b429;
+      --allow: #3dd68c;
+      --esc: #f0b429;
+      --deny: #ff6b6b;
+      --gate: #d6e4ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 420px at 10% -10%, #16324a 0%, transparent 55%),
+        radial-gradient(700px 380px at 100% 0%, #2a2412 0%, transparent 50%),
+        var(--bg);
+      color: var(--text);
+      font: 15px/1.4 "Segoe UI", system-ui, sans-serif;
+    }
+    a { color: var(--link); }
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 28px 22px 36px;
+    }
+    .top, .foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .repo {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #0c121a;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+    }
+    .repo:hover { border-color: var(--link); }
+    .kicker {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 10px 0 8px;
+      font-size: 34px;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+    h1 span { color: var(--jev); }
+    .hook {
+      margin: 0 0 18px;
+      max-width: 46rem;
+      color: #c5d0de;
+      font-size: 17px;
+    }
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .col {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px 12px;
+      background: rgba(16, 21, 28, 0.92);
+    }
+    .col h2 {
+      margin: 0 0 6px;
+      font-size: 15px;
+    }
+    .col.jev h2 { color: var(--jev); }
+    .col.llm h2 { color: var(--llm); }
+    .col p { margin: 0; color: #c9d3e0; }
+    .meta {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    td.ticket { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 13px; }
+    .chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .allow { color: #062; background: rgba(61, 214, 140, 0.16); border: 1px solid rgba(61, 214, 140, 0.35); }
+    .esc { color: #3a2a00; background: rgba(240, 180, 41, 0.9); }
+    .deny { color: #ffd6d6; background: rgba(255, 107, 107, 0.22); border: 1px solid rgba(255, 107, 107, 0.45); }
+    .note { color: var(--muted); font-weight: 500; }
+    .why {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .foot {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .tags { margin: 0; letter-spacing: 0.02em; }
+    .tags span { color: #b7c7dc; margin-right: 8px; }
+    @media (max-width: 720px) {
+      h1 { font-size: 28px; }
+      .cols, .top, .foot { display: block; }
+      .repo { margin-top: 10px; }
+      th:nth-child(2), td:nth-child(2) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <p class="kicker">Order-policy gates · 21 Sep 2026 ET</p>
+      <a class="repo" href="https://github.com/sheshisheri-hi/jev-vs-llm-stock-policy">github.com/sheshisheri-hi/jev-vs-llm-stock-policy</a>
+    </div>
+    <h1>Free text vs a <span>typed</span> decision.</h1>
+    <p class="hook">Can the code act on the model's answer? Same six fake tickets. A Cursor Cloud Agent writes prose. TypeSafe Jev (System One, jev-1.13.0) returns allow, escalate_to_human, or deny, plus probabilities. Python hard rules still get the last word. Not stock picking.</p>
+    <div class="cols">
+      <section class="col jev">
+        <h2>I'd use Jev when</h2>
+        <p>The next step is code. Closed actions, probabilities, policy and routing and triage and tool gates. An invented label would break the product.</p>
+      </section>
+      <section class="col llm">
+        <h2>I'd use an LLM when</h2>
+        <p>A person is the reader. Drafts, explanations, open-ended reasoning, a narrative review, chat. The text can wander.</p>
+      </section>
+    </div>
+    <p class="meta">Live run: <code>python examples/demo.py --live-llm</code> · final column is hard rules + Jev, not the prose.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Ticket</th>
+          <th>Cursor LLM</th>
+          <th>Jev</th>
+          <th>Final gate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ticket">core-top-up</td>
+          <td><span class="chip allow">allow</span></td>
+          <td><span class="chip allow">allow</span></td>
+          <td><span class="chip allow">allow</span></td>
+        </tr>
+        <tr>
+          <td class="ticket">routine-hold</td>
+          <td><span class="chip allow">allow</span></td>
+          <td><span class="chip allow">allow</span></td>
+          <td><span class="chip allow">allow</span></td>
+        </tr>
+        <tr>
+          <td class="ticket">concentration-breach</td>
+          <td><span class="chip deny">deny</span></td>
+          <td><span class="chip deny">deny</span></td>
+          <td><span class="chip esc">escalate_to_human</span> <span class="note">hard 15%</span></td>
+        </tr>
+        <tr>
+          <td class="ticket">after-hours-options</td>
+          <td><span class="chip esc">escalate_to_human</span></td>
+          <td><span class="chip esc">escalate_to_human</span></td>
+          <td><span class="chip esc">escalate_to_human</span></td>
+        </tr>
+        <tr>
+          <td class="ticket">sell-all-offshore</td>
+          <td><span class="chip deny">deny</span></td>
+          <td><span class="chip deny">deny</span></td>
+          <td><span class="chip deny">deny</span></td>
+        </tr>
+        <tr>
+          <td class="ticket">gray-zone-tip</td>
+          <td><span class="chip deny">deny</span></td>
+          <td><span class="chip esc">escalate_to_human</span></td>
+          <td><span class="chip esc">escalate_to_human</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="why">Live Cursor stayed in schema. The offline stub does not. On concentration both said deny, and the gate still escalated: 32% of the book breaks a 15% rule in code. Gray-zone is the split. The gate followed Jev.</p>
+    <footer class="foot">
+      <p class="tags"><span>#AISecurity</span><span>#SystemOne</span><span>#Jev</span> Not financial advice. Synthetic tickets. Not a broker. Not a return forecast.</p>
+      <a class="repo" href="https://github.com/sheshisheri-hi/jev-vs-llm-stock-policy">View the repo</a>
+    </footer>
+  </main>
+</body>
+</html>

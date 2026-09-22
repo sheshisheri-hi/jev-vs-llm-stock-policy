@@ -9,7 +9,6 @@ Pass --live-jev or --live-llm to require the corresponding key.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -21,13 +20,17 @@ from dotenv import load_dotenv  # noqa: E402
 from stock_policy.compare import dump_json, render_report, run_all  # noqa: E402
 from stock_policy.fixtures import FIXTURES  # noqa: E402
 from stock_policy.jev_client import MissingJevKeyError, resolve_api_key  # noqa: E402
-from stock_policy.llm_client import MissingLlmKeyError  # noqa: E402
+from stock_policy.llm_client import MissingLlmKeyError, describe_live_llm, live_llm_ready  # noqa: E402
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compare a free-form LLM with Jev on stock order policy.")
     parser.add_argument("--live-jev", action="store_true", help="Require a live System One call (jev-latest).")
-    parser.add_argument("--live-llm", action="store_true", help="Call an OpenAI-compatible chat model.")
+    parser.add_argument(
+        "--live-llm",
+        action="store_true",
+        help="Call Cursor Cloud Agents or an OpenAI-compatible chat model. Not implied by a Jev key.",
+    )
     parser.add_argument("--fixture", help="Run one fixture id instead of all six.")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of the table.")
     return parser
@@ -54,10 +57,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.live_llm and not os.environ.get("OPENAI_API_KEY", "").strip():
+    if args.live_llm and not live_llm_ready():
         print(
-            "No OPENAI_API_KEY. The default path is the messy stub and needs no key. "
-            "Set OPENAI_API_KEY (and optionally OPENAI_BASE_URL / OPENAI_MODEL) to use --live-llm.",
+            "No live LLM key. Set GROK_BOT_API_KEY or CURSOR_API_KEY for a Cursor Cloud Agent, "
+            "or OPENAI_API_KEY for an OpenAI-compatible chat model. "
+            "The default path is the messy stub and needs no key.",
             file=sys.stderr,
         )
         return 2
@@ -73,10 +77,9 @@ def main(argv: list[str] | None = None) -> int:
             "SAMPLE rows are schema-valid illustrations, not live model output."
         )
     if args.live_llm:
-        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-        llm_mode = f"live OpenAI-compatible chat ({model})"
+        llm_mode = describe_live_llm()
     else:
-        llm_mode = "stub traditional LLM (free-form text; pass --live-llm for a real chat model)"
+        llm_mode = "stub traditional LLM (free-form text; pass --live-llm for Cursor or OpenAI)"
 
     try:
         comparisons = run_all(live_jev=live_jev, live_llm=args.live_llm, fixture_id=args.fixture)

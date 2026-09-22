@@ -27,7 +27,15 @@ from stock_policy.jev_client import (
     policy_questions,
     resolve_api_key,
 )
-from stock_policy.llm_client import parse_llm_text, stub_text
+from stock_policy.llm_client import (
+    decide as decide_llm,
+    decide_many,
+    live_llm_ready,
+    parse_llm_text,
+    prompt_for,
+    resolve_llm_credentials,
+    stub_text,
+)
 from stock_policy.policy import VALID_ACTIONS, evaluate_hard_rules
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -331,9 +339,14 @@ def test_jev_client_rejects_out_of_schema_choice() -> None:
 
 
 def test_demo_cli_prints_six_columns(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-    monkeypatch.delenv("JEV_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    for name in (
+        "TYPESAFE_API_KEY",
+        "JEV_API_KEY",
+        "OPENAI_API_KEY",
+        "GROK_BOT_API_KEY",
+        "CURSOR_API_KEY",
+    ):
+        monkeypatch.setenv(name, "")
     env = os.environ.copy()
     completed = subprocess.run(
         [sys.executable, str(ROOT / "examples" / "demo.py")],
@@ -385,6 +398,7 @@ def test_demo_cli_prints_six_columns(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert missing_llm.returncode == 2
     assert "OPENAI_API_KEY" in missing_llm.stderr
+    assert "CURSOR_API_KEY" in missing_llm.stderr
 
     unknown = subprocess.run(
         [sys.executable, str(ROOT / "examples" / "demo.py"), "--fixture", "nope"],
@@ -396,3 +410,208 @@ def test_demo_cli_prints_six_columns(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert unknown.returncode == 2
     assert "core-top-up" in unknown.stderr
+
+
+class _JsonResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._raw = json.dumps(payload).encode()
+
+    def read(self) -> bytes:
+        return self._raw
+
+    def __enter__(self) -> "_JsonResponse":
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+
+def _install_urlopen(monkeypatch: pytest.MonkeyPatch, handler):  # type: ignore[no-untyped-def]
+    monkeypatch.setattr("stock_policy.llm_client.time.sleep", lambda _delay: None)
+    monkeypatch.setattr("stock_policy.llm_client.urllib.request.urlopen", handler)
+
+
+def test_llm_key_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("OPENAI_API_KEY", "GROK_BOT_API_KEY", "CURSOR_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert resolve_llm_credentials() == (None, "missing")
+    assert live_llm_ready() is False
+
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_cursor")
+    monkeypatch.setenv("GROK_BOT_API_KEY", "desk-bot-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert resolve_llm_credentials() == ("sk-openai", "openai")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "crsr_in_openai_slot")
+    assert resolve_llm_credentials() == ("desk-bot-key", "cursor")
+
+    monkeypatch.delenv("GROK_BOT_API_KEY")
+    assert resolve_llm_credentials() == ("crsr_cursor", "cursor")
+
+    monkeypatch.delenv("CURSOR_API_KEY")
+    assert resolve_llm_credentials() == ("crsr_in_openai_slot", "cursor")
+
+    assert resolve_llm_credentials("crsr_explicit") == ("crsr_explicit", "cursor")
+    assert resolve_llm_credentials("sk-explicit") == ("sk-explicit", "openai")
+
+
+def test_stub_ignores_cursor_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_test")
+
+    def fail_open(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("live LLM should not be called when live=False")
+
+    _install_urlopen(monkeypatch, fail_open)
+    result = decide_llm(get_fixture("core-top-up"), live=False)
+    assert result.source == "stub"
+    rows = run_all(live_jev=False, live_llm=False, fixture_id="core-top-up")
+    assert rows[0].llm.source == "stub"
+
+
+def test_cursor_key_reuses_one_agent_then_archives(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GROK_BOT_API_KEY", raising=False)
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_test")
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+    second_polls = {"n": 0}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        import base64
+
+        assert request.get_header("Authorization") == "Basic " + base64.b64encode(b"crsr_test:").decode()
+        method = request.get_method()
+        url = request.full_url
+        body = json.loads(request.data.decode()) if request.data else None
+        calls.append((method, url, body))
+        if method == "POST" and url == "https://api.cursor.com/v1/agents":
+            assert body is not None
+            assert body["name"] == "jev-demo-llm"
+            assert "repos" not in body
+            assert "env" not in body
+            assert body["prompt"]["text"] == prompt_for(get_fixture("core-top-up"))
+            return _JsonResponse({"agent": {"id": "ag_1"}, "run": {"id": "run_1"}})
+        if method == "GET" and url.endswith("/runs/run_1"):
+            return _JsonResponse({"status": "FINISHED", "result": "Small add, inside the sleeve.\nallow"})
+        if method == "POST" and url == "https://api.cursor.com/v1/agents/ag_1/runs":
+            assert body is not None
+            assert body["prompt"]["text"] == prompt_for(get_fixture("sell-all-offshore"))
+            return _JsonResponse({"run": {"id": "run_2"}})
+        if method == "GET" and url.endswith("/runs/run_2"):
+            second_polls["n"] += 1
+            if second_polls["n"] == 1:
+                return _JsonResponse({"status": "RUNNING"})
+            return _JsonResponse(
+                {"status": "FINISHED", "result": "This is a wire out.\ndeny", "model": "composer-2"}
+            )
+        if method == "POST" and url.endswith("/archive"):
+            return _JsonResponse({})
+        raise AssertionError(f"unexpected {method} {url}")
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    results = decide_many(
+        (get_fixture("core-top-up"), get_fixture("sell-all-offshore")),
+        live=True,
+    )
+    assert [item.source for item in results] == ["live-cursor", "live-cursor"]
+    assert results[0].model == "cursor-cloud-agent"
+    assert results[0].parsed_action == "allow"
+    assert results[1].model == "composer-2"
+    assert results[1].parsed_action == "deny"
+    creates = [call for call in calls if call[0] == "POST" and call[1] == "https://api.cursor.com/v1/agents"]
+    followups = [call for call in calls if call[1].endswith("/agents/ag_1/runs")]
+    archives = [call for call in calls if call[1].endswith("/archive")]
+    assert len(creates) == 1
+    assert len(followups) == 1
+    assert len(archives) == 1
+    assert second_polls["n"] == 2
+
+
+def test_cursor_error_still_archives(monkeypatch: pytest.MonkeyPatch) -> None:
+    archived = {"n": 0}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        url = request.full_url
+        if request.get_method() == "POST" and url.endswith("/v1/agents"):
+            return _JsonResponse({"agent": {"id": "ag_err"}, "run": {"id": "run_err"}})
+        if request.get_method() == "GET":
+            return _JsonResponse({"status": "ERROR", "error": "quota"})
+        if url.endswith("/archive"):
+            archived["n"] += 1
+            return _JsonResponse({})
+        raise AssertionError(url)
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    with pytest.raises(RuntimeError, match="ERROR: quota"):
+        decide_llm(get_fixture("core-top-up"), live=True, api_key="crsr_test")
+    assert archived["n"] == 1
+
+
+def test_cursor_poll_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = {"t": 0.0}
+
+    def monotonic() -> float:
+        clock["t"] += 100.0
+        return clock["t"]
+
+    monkeypatch.setattr("stock_policy.llm_client.time.monotonic", monotonic)
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        if request.get_method() == "POST" and request.full_url.endswith("/v1/agents"):
+            return _JsonResponse({"agent": {"id": "ag_slow"}, "run": {"id": "run_slow"}})
+        if request.get_method() == "GET":
+            return _JsonResponse({"status": "RUNNING"})
+        if request.full_url.endswith("/archive"):
+            return _JsonResponse({})
+        raise AssertionError(request.full_url)
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    with pytest.raises(RuntimeError, match="did not finish"):
+        decide_llm(get_fixture("routine-hold"), live=True, api_key="crsr_test")
+
+
+def test_openai_key_stays_on_chat_completions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_ignored")
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        assert request.full_url == "https://api.openai.com/v1/chat/completions"
+        assert request.get_header("Authorization") == "Bearer sk-test"
+        return _JsonResponse({"choices": [{"message": {"content": "I would allow this."}}]})
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    result = decide_llm(get_fixture("core-top-up"), live=True)
+    assert result.source == "live"
+    assert result.model == "gpt-4o-mini"
+    assert result.parsed_action == "allow"
+
+
+def test_run_all_cursor_path_is_one_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GROK_BOT_API_KEY", "crsr_grok")
+    creates = {"n": 0}
+    followups = {"n": 0}
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        import base64
+
+        assert request.get_header("Authorization") == "Basic " + base64.b64encode(b"crsr_grok:").decode()
+        method = request.get_method()
+        url = request.full_url
+        if method == "POST" and url == "https://api.cursor.com/v1/agents":
+            creates["n"] += 1
+            return _JsonResponse({"agent": {"id": "ag"}, "run": {"id": "run-0"}})
+        if method == "POST" and url.endswith("/runs"):
+            followups["n"] += 1
+            return _JsonResponse({"id": f"run-{followups['n']}"})
+        if method == "GET":
+            return _JsonResponse({"status": "FINISHED", "result": "Inside policy.\nallow"})
+        if method == "POST" and url.endswith("/archive"):
+            return _JsonResponse({})
+        raise AssertionError(f"{method} {url}")
+
+    _install_urlopen(monkeypatch, fake_urlopen)
+    rows = run_all(live_jev=False, live_llm=True)
+    assert creates["n"] == 1
+    assert followups["n"] == 5
+    assert len(rows) == 6
+    assert {row.llm.source for row in rows} == {"live-cursor"}

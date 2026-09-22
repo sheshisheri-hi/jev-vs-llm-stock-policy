@@ -21,7 +21,7 @@ This is not stock picking. Not a trade in Apple, NVIDIA, or any real name. Not a
 | Column | What it is |
 | --- | --- |
 | Input | The fake ticket. Side, size, session, intents. |
-| LLM | Free text. The default is a stub I wrote so it misbehaves on cue. The gate ignores this column. If the text isn't one of the three actions, the cell says `OUT OF SCHEMA`. |
+| LLM | Free text. The default is a stub I wrote so it misbehaves on cue. The gate ignores this column. If the text isn't one of the three actions, the cell says `OUT OF SCHEMA`. `--live-llm` is opt-in. |
 | Jev | Typed Choice, Score, and Nouls, with probabilities. `SAMPLE` means I filled in the numbers so the demo runs with no key. `LIVE` means `jev-latest` answered. |
 | Final gate | `allow`, `escalate_to_human`, or `deny`. Hard rules first, then the Jev fields. This is the only action the program takes. |
 
@@ -36,7 +36,7 @@ src/stock_policy/
   fixtures.py     six fake tickets: book, order, agent note
   policy.py       hard limits: notional, concentration, delta, after-hours, blocklist
   jev_client.py   TypeSafeClient.system_one, model jev-latest, plus SAMPLE answers
-  llm_client.py   messy stub by default; optional OpenAI-compatible chat call
+  llm_client.py   messy stub by default; --live-llm uses Cursor Cloud Agents or OpenAI chat
   gate.py         hard rules + Jev fields → allow / escalate_to_human / deny
   compare.py      runs both paths and prints the four columns
 examples/demo.py
@@ -95,7 +95,30 @@ Hard rules. The stricter result wins:
 
 No key: the demo still exits 0. Jev cells say SAMPLE. I wrote those distributions so the table has numbers. They are not a measurement of `jev-latest`. A live call will differ. On the concentration ticket the SAMPLE Choice is `allow` on purpose, so the 15% rule has an allow to override.
 
-The LLM path is the stub unless you pass `--live-llm`. That flag, plus `OPENAI_API_KEY`, POSTs to an OpenAI-compatible `/chat/completions` endpoint (`OPENAI_BASE_URL`, `OPENAI_MODEL`). Setting the key does not turn the stub off. I want the messy contrast to stay the default.
+The LLM path is the stub unless you pass `--live-llm`. A key sitting in the environment does not turn the stub off, including a Jev key. I want the messy contrast to stay the default, and a live Cursor run is too slow and too expensive to start by accident.
+
+Cursor has no OpenAI-compatible `/v1/chat/completions`. A `crsr_` key, `GROK_BOT_API_KEY`, or `CURSOR_API_KEY` goes to the Cloud Agents API. I create one no-repo agent (no `repos`, no `env`), poll the run until `status` is `FINISHED`, and read `result`. Extra tickets are follow-up runs on that same agent. Then I archive it. Basic auth, key as the username, empty password. A single ticket is on the order of 20 seconds, so six of them are a couple of minutes, and they spend agent usage.
+
+If `OPENAI_API_KEY` is a normal key (it does not start with `crsr_`), `--live-llm` still POSTs to `{OPENAI_BASE_URL}/chat/completions` with `OPENAI_MODEL`. That key wins over the Cursor variables.
+
+```bash
+# create the no-repo agent
+curl -u "$CURSOR_API_KEY:" -X POST https://api.cursor.com/v1/agents \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":{"text":"..."},"name":"jev-demo-llm"}'
+
+# follow-up ticket
+curl -u "$CURSOR_API_KEY:" -X POST "https://api.cursor.com/v1/agents/$AGENT_ID/runs" \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":{"text":"..."}}'
+
+# poll until status is FINISHED; the prose is in result
+curl -u "$CURSOR_API_KEY:" \
+  "https://api.cursor.com/v1/agents/$AGENT_ID/runs/$RUN_ID"
+
+# cleanup
+curl -u "$CURSOR_API_KEY:" -X POST "https://api.cursor.com/v1/agents/$AGENT_ID/archive"
+```
 
 ## Quickstart
 
@@ -116,12 +139,12 @@ Leave the keys blank. You get the stub and the SAMPLE column. `.env` is gitignor
 python examples/demo.py --fixture sell-all-offshore
 python examples/demo.py --json
 python examples/demo.py --live-jev          # TYPESAFE_API_KEY or JEV_API_KEY
-python examples/demo.py --live-llm          # OPENAI_API_KEY
+python examples/demo.py --live-llm          # GROK_BOT_API_KEY, CURSOR_API_KEY, or OPENAI_API_KEY
 ```
 
 `--live-jev` or `--live-llm` with no key exits 2 and names the variable. A live call that fails exits 1. If `TYPESAFE_API_KEY` or `JEV_API_KEY` is already in the environment, `demo.py` calls Jev without the flag.
 
-`pytest` mocks the System One HTTP call. No key, no network.
+`pytest` mocks the System One call and the Cursor and OpenAI calls. No key, no network.
 
 ## The six tickets
 

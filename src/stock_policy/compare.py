@@ -10,7 +10,7 @@ from typing import Any
 from stock_policy.fixtures import FIXTURES, Fixture, get_fixture
 from stock_policy.gate import GateDecision, apply_gate
 from stock_policy.jev_client import JevReadout, decide as decide_jev
-from stock_policy.llm_client import LlmResult, decide as decide_llm
+from stock_policy.llm_client import LlmResult, decide as decide_llm, decide_many as decide_llm_many
 from stock_policy.policy import HardRuleResult, evaluate_hard_rules
 
 COLUMNS = ("Input", "LLM", "Jev", "Final gate")
@@ -71,7 +71,25 @@ def run_all(*, live_jev: bool | None = None, live_llm: bool = False, fixture_id:
         selected = (get_fixture(fixture_id),)
     else:
         selected = FIXTURES
-    return [run_fixture(fixture, live_jev=live_jev, live_llm=live_llm) for fixture in selected]
+    # One Cursor agent for the whole run when the live LLM path is Cloud Agents.
+    llm_results = decide_llm_many(selected, live=live_llm)
+    comparisons: list[Comparison] = []
+    for fixture, llm in zip(selected, llm_results):
+        hard = evaluate_hard_rules(fixture)
+        jev = decide_jev(fixture, live=live_jev)
+        gate = apply_gate(hard, jev)
+        comparisons.append(
+            Comparison(
+                fixture_id=fixture.id,
+                title=fixture.title,
+                expected_final=fixture.expected_final,
+                hard=hard,
+                llm=llm,
+                jev=jev,
+                gate=gate,
+            )
+        )
+    return comparisons
 
 
 def _fmt_probs(probabilities: dict[str, float]) -> str:
